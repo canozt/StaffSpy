@@ -25,6 +25,8 @@ from staffspy.linkedin.skills import SkillsFetcher
 from staffspy.utils.models import Staff
 from staffspy.utils.utils import logger
 
+import random
+import time
 
 class LinkedInScraper:
     employees_ep = "https://www.linkedin.com/voyager/api/graphql?variables=(start:{offset},query:(flagshipSearchIntent:SEARCH_SRP,{search}queryParameters:List({company_id}{location}(key:resultType,value:List(PEOPLE))),includeFiltersInResponse:false),count:{count})&queryId=voyagerSearchDashClusters.66adc6056cf4138949ca5dcb31bb1749"
@@ -61,6 +63,12 @@ class LinkedInScraper:
         self.bio = EmployeeBioFetcher(self.session)
         self.languages = LanguagesFetcher(self.session)
         self.contact = ContactInfoFetcher(self.session)
+
+        # YENİ EKLEMELER
+        self.request_delay_min = 2  # Minimum 2 saniye
+        self.request_delay_max = 4  # Maximum 5 saniye
+        self.profile_fetch_count = 0
+        self.max_profiles_before_break = 8  # Her 10 profilden sonra mola
 
     def search_companies(self, company_name: str):
         """Get the company id and staff count from the company name."""
@@ -114,7 +122,7 @@ class LinkedInScraper:
 
         if res.status_code not in (200, 404):
             raise Exception(
-                f"Failed to find company {company_name} (likely due to outdated login if you know it's valid company)",
+                f"Failed to find company {company_name}",
                 res.status_code,
                 res.text[:200],
             )
@@ -206,6 +214,14 @@ class LinkedInScraper:
 
     def fetch_staff(self, offset: int):
         """Fetch the staff using LinkedIn search"""
+        # Randomize headers before each request
+        user_agents = [
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
+        ]
+        self.session.headers["User-Agent"] = random.choice(user_agents)
+
         ep = self.employees_ep.format(
             offset=offset,
             company_id=(
@@ -431,32 +447,63 @@ class LinkedInScraper:
 
         return reduced_staff_list
 
+    def _safe_delay(self):
+        """Add random delay to avoid detection"""
+        delay = random.uniform(self.request_delay_min, self.request_delay_max)
+        time.sleep(delay)
+
     def fetch_all_info_for_employee(self, employee: Staff, index: int):
         """Simultaniously fetch all the data for an employee"""
+
+        self._safe_delay()  # Random delay
+
+        # Her 10 profilden sonra uzun mola
+        if index % 10 == 0 and index > 0:
+            logger.info(f"Taking a 10-second break after {index} profiles...")
+            time.sleep(10)
+
         logger.info(
             f"Fetching data for account {employee.id} {index:>4} / {self.num_staff} - {employee.profile_link}"
         )
 
-        task_functions = [
-            (self.employees.fetch_employee, (employee, self.domain), "employee"),
-            (self.skills.fetch_skills, (employee,), "skills"),
-            (self.experiences.fetch_experiences, (employee,), "experiences"),
-            (self.certs.fetch_certifications, (employee,), "certifications"),
-            (self.schools.fetch_schools, (employee,), "schools"),
-            (self.bio.fetch_employee_bio, (employee,), "bio"),
-            (self.languages.fetch_languages, (employee,), "languages"),
-        ]
+        try:
+            self.employees.fetch_employee(employee, self.domain)
+            time.sleep(1)  # wait 1 second
 
-        with ThreadPoolExecutor(max_workers=len(task_functions)) as executor:
-            tasks = {
-                executor.submit(func, *args): name
-                for func, args, name in task_functions
-            }
+            # 2. Bio info
+            self.bio.fetch_employee_bio(employee)
+            time.sleep(0.5)
 
-            for future in as_completed(tasks):
-                result = future.result()
+        except Exception as e:
+            logger.warning(f"Error fetching data for {employee.id}: {e}")
+            # Hata durumunda devam et
+            pass
 
         if employee.is_connection:
+            self.contact.fetch_contact_info(employee)
+
+
+
+        # task_functions = [
+        #     (self.employees.fetch_employee, (employee, self.domain), "employee"),
+        #     (self.skills.fetch_skills, (employee,), "skills"),
+        #     (self.experiences.fetch_experiences, (employee,), "experiences"),
+        #     (self.certs.fetch_certifications, (employee,), "certifications"),
+        #     (self.schools.fetch_schools, (employee,), "schools"),
+        #     (self.bio.fetch_employee_bio, (employee,), "bio"),
+        #     (self.languages.fetch_languages, (employee,), "languages"),
+        # ]
+        #
+        # with ThreadPoolExecutor(max_workers=len(task_functions)) as executor:
+        #     tasks = {
+        #         executor.submit(func, *args): name
+        #         for func, args, name in task_functions
+        #     }
+        #
+        #     for future in as_completed(tasks):
+        #         result = future.result()
+        #
+        # if employee.is_connection:
             self.contact.fetch_contact_info(employee)
 
     def fetch_user_profile_data_from_public_id(self, user_id: str, key: str):

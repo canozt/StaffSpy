@@ -61,7 +61,7 @@ def get_webdriver(driver_type: Optional[DriverType] = None):
         from selenium.webdriver.firefox.service import Service as FirefoxService
     except ImportError as e:
         raise Exception(
-            'install package `pip install "staffspy[browser]"` to login with browser'
+            "install package `pip install staffspy[browser]` to login with browser"
         )
 
     if driver_type:
@@ -238,7 +238,20 @@ class Login:
             raise Exception("driver not found for selenium")
 
         driver.get("https://linkedin.com/login")
-        input("Press enter after logged in")
+        # input("Press enter after logged in")
+
+        from shared_state import login_event, debug_event_status
+        print("After login to LinkedIn'e click on 'Login Completed' ...")
+
+        print("Before wait:")
+        debug_event_status()
+
+        login_event.wait()  # Bu satır bekleyecek
+        print("Login event received! Continuing...")
+        login_event.clear()
+
+
+
 
         selenium_cookies = driver.get_cookies()
         driver.quit()
@@ -285,7 +298,7 @@ class Login:
         )
         if not self.check_logged_in(session):
             raise Exception(
-                "Failed to log in. Likely outdated session file and cookies have expired. Best practice to delete the file and rerun the LinkedAccount() code"
+                "Failed to log in. Likely outdated session file and cookies have expired. Delete the file and rerun the LinkedAccount() code"
             )
         return session
 
@@ -296,10 +309,9 @@ class Login:
                 "https://www.linkedin.com/voyager/api/organization/companies?q=universalName&universalName=amazon"
             )
             if res.status_code != 200:
-                logger.error(f"{res.status_code} status code returned from linkedin")
+                logger.error(f"{res.status_code} status code returned from linkeind")
                 return False
-        except Exception as e:
-            logger.error(f"Failed to get arbitrary company page: {e}")
+        except:
             return False
         logger.info("Account successfully logged in - res code 200")
         return True
