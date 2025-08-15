@@ -54,6 +54,37 @@ def create_emails(first, last, domain):
     return emails
 
 
+# def get_webdriver(driver_type: Optional[DriverType] = None):
+#     try:
+#         from selenium import webdriver
+#         from selenium.webdriver.chrome.service import Service as ChromeService
+#         from selenium.webdriver.firefox.service import Service as FirefoxService
+#     except ImportError as e:
+#         raise Exception(
+#             "install package `pip install staffspy[browser]` to login with browser"
+#         )
+
+#     if driver_type:
+#         if str(driver_type.browser_type) == str(BrowserType.CHROME):
+#             if driver_type.executable_path:
+#                 service = ChromeService(executable_path=driver_type.executable_path)
+#                 return webdriver.Chrome(service=service)
+#             else:
+#                 return webdriver.Chrome()
+#         elif str(driver_type.browser_type) == str(BrowserType.FIREFOX):
+#             if driver_type.executable_path:
+#                 service = FirefoxService(executable_path=driver_type.executable_path)
+#                 return webdriver.Firefox(service=service)
+#             else:
+#                 return webdriver.Firefox()
+#     else:
+#         for browser in [webdriver.Chrome, webdriver.Firefox]:
+#             try:
+#                 return browser()
+#             except Exception:
+#                 continue
+#     return None
+
 def get_webdriver(driver_type: Optional[DriverType] = None):
     try:
         from selenium import webdriver
@@ -63,6 +94,17 @@ def get_webdriver(driver_type: Optional[DriverType] = None):
         raise Exception(
             "install package `pip install staffspy[browser]` to login with browser"
         )
+
+    chrome_options = Options()
+    
+    # CRITICAL: Add these for server/root environment
+    chrome_options.add_argument("--headless=new")  # New headless mode
+    chrome_options.add_argument("--no-sandbox")    # REQUIRED for root/server
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument("--disable-gpu")
+    chrome_options.add_argument("--disable-web-security")
+    chrome_options.add_argument("--disable-features=VizDisplayCompositor")
+    chrome_options.add_argument("--window-size=1920,1080")
 
     if driver_type:
         if str(driver_type.browser_type) == str(BrowserType.CHROME):
@@ -78,11 +120,19 @@ def get_webdriver(driver_type: Optional[DriverType] = None):
             else:
                 return webdriver.Firefox()
     else:
-        for browser in [webdriver.Chrome, webdriver.Firefox]:
+        try:
+            return webdriver.Chrome(options=chrome_options)
+        except Exception as e:
+            print(f"Chrome failed: {e}")
+            # Firefox fallback
             try:
-                return browser()
-            except Exception:
-                continue
+                from selenium.webdriver.firefox.options import Options as FirefoxOptions
+                firefox_options = FirefoxOptions()
+                firefox_options.add_argument("--headless")
+                return webdriver.Firefox(options=firefox_options)
+            except:
+                pass
+                
     return None
 
 
