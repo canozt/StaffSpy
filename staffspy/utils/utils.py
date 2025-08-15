@@ -315,6 +315,41 @@ class Login:
         with open(session_file, "wb") as f:
             pickle.dump(data, f)
 
+    # def load_session(self):
+    #     """Load session from session file, otherwise login"""
+    #     session = None
+    #     if not self.session_file or not os.path.exists(self.session_file):
+    #         if self.username and self.password:
+    #             try:
+    #                 session = self.login_requests()
+    #             except RetryError as retry_err:
+    #                 retry_err.reraise()
+    #         else:
+    #             session = self.login_browser()
+    #         if not session:
+    #             raise Exception("Failed to log in.")
+    #         if self.session_file:
+    #             self.save_session(session, self.session_file)
+    #     else:
+    #         with open(self.session_file, "rb") as f:
+    #             data = pickle.load(f)
+    #             session = requests.Session()
+    #             session.cookies.update(data["cookies"])
+    #             session.headers.update(data["headers"])
+    #     session.headers.update(
+    #         {
+    #             "User-Agent": "Mozilla/5.0 (Linux; U; Android 4.4.2; en-us; SCH-I535 Build/KOT49H) AppleWebKit/534.30 (KHTML, like Gecko) Version/4.0 Mobile Safari/534.30",
+    #             "X-RestLi-Protocol-Version": "2.0.0",
+    #             "X-Li-Track": '{"clientVersion":"1.13.1665"}',
+    #         }
+    #     )
+    #     if not self.check_logged_in(session):
+    #         raise Exception(
+    #             "Failed to log in. Likely outdated session file and cookies have expired. Delete the file and rerun the LinkedAccount() code"
+    #         )
+    #     return session
+
+
     def load_session(self):
         """Load session from session file, otherwise login"""
         session = None
@@ -322,6 +357,9 @@ class Login:
             if self.username and self.password:
                 try:
                     session = self.login_requests()
+                    if session and self.session_file:
+                        self.save_session(session, self.session_file)
+                    return session
                 except RetryError as retry_err:
                     retry_err.reraise()
             else:
@@ -348,6 +386,7 @@ class Login:
                 "Failed to log in. Likely outdated session file and cookies have expired. Delete the file and rerun the LinkedAccount() code"
             )
         return session
+
 
     def check_logged_in(self, session):
         logger.info("Testing if logged in by checking arbitrary LinkedIn company page")
