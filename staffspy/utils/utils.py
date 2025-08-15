@@ -90,29 +90,30 @@ def get_webdriver(driver_type: Optional[DriverType] = None):
         from selenium import webdriver
         from selenium.webdriver.chrome.service import Service as ChromeService
         from selenium.webdriver.firefox.service import Service as FirefoxService
+        from selenium.webdriver.chrome.options import Options  # BU SATIR EKSİK!
     except ImportError as e:
         raise Exception(
             "install package `pip install staffspy[browser]` to login with browser"
         )
 
+    # Chrome options for headless mode
     chrome_options = Options()
-    
-    # CRITICAL: Add these for server/root environment
-    chrome_options.add_argument("--headless=new")  # New headless mode
-    chrome_options.add_argument("--no-sandbox")    # REQUIRED for root/server
+    chrome_options.add_argument("--headless=new")
+    chrome_options.add_argument("--no-sandbox")  # CRITICAL for server
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-gpu")
-    chrome_options.add_argument("--disable-web-security")
-    chrome_options.add_argument("--disable-features=VizDisplayCompositor")
     chrome_options.add_argument("--window-size=1920,1080")
+    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+    chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    chrome_options.add_experimental_option('useAutomationExtension', False)
 
     if driver_type:
         if str(driver_type.browser_type) == str(BrowserType.CHROME):
             if driver_type.executable_path:
                 service = ChromeService(executable_path=driver_type.executable_path)
-                return webdriver.Chrome(service=service)
+                return webdriver.Chrome(service=service, options=chrome_options)
             else:
-                return webdriver.Chrome()
+                return webdriver.Chrome(options=chrome_options)
         elif str(driver_type.browser_type) == str(BrowserType.FIREFOX):
             if driver_type.executable_path:
                 service = FirefoxService(executable_path=driver_type.executable_path)
@@ -120,19 +121,15 @@ def get_webdriver(driver_type: Optional[DriverType] = None):
             else:
                 return webdriver.Firefox()
     else:
-        try:
-            return webdriver.Chrome(options=chrome_options)
-        except Exception as e:
-            print(f"Chrome failed: {e}")
-            # Firefox fallback
+        # Default: try Chrome first with options
+        for browser in [webdriver.Chrome, webdriver.Firefox]:
             try:
-                from selenium.webdriver.firefox.options import Options as FirefoxOptions
-                firefox_options = FirefoxOptions()
-                firefox_options.add_argument("--headless")
-                return webdriver.Firefox(options=firefox_options)
-            except:
-                pass
-                
+                if browser == webdriver.Chrome:
+                    return browser(options=chrome_options)
+                else:
+                    return browser()
+            except Exception:
+                continue
     return None
 
 
