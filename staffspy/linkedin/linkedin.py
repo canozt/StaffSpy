@@ -410,6 +410,10 @@ class LinkedInScraper:
                 f"1) Search results for company: '{company_name}'{location} - {total_count:,} staff"
             )
 
+            if total_count < 20:
+                raise ValueError(
+                    f"Company '{company_name}' has only {total_count} staff members. Minimum 20 staff required for processing.")
+
             self.num_staff = min(total_count, max_results, 1000)
             for offset in range(50, self.num_staff, 50):
                 staff, _ = self.fetch_staff(offset)
@@ -468,11 +472,19 @@ class LinkedInScraper:
 
         try:
             self.employees.fetch_employee(employee, self.domain)
-            time.sleep(1)  # wait 1 second
+            time.sleep(random.uniform(1, 3))
 
             # 2. Bio info
             self.bio.fetch_employee_bio(employee)
-            time.sleep(0.5)
+            time.sleep(random.uniform(1., 2))
+
+            # 3. Experiences
+            # self.experiences.fetch_experiences(employee)
+            # time.sleep(1)
+
+            # 4. skills
+            # self.skills.fetch_skills(employee)
+            # time.sleep(0.75)
 
         except Exception as e:
             logger.warning(f"Error fetching data for {employee.id}: {e}")
