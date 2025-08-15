@@ -54,66 +54,23 @@ def create_emails(first, last, domain):
     return emails
 
 
-# def get_webdriver(driver_type: Optional[DriverType] = None):
-#     try:
-#         from selenium import webdriver
-#         from selenium.webdriver.chrome.service import Service as ChromeService
-#         from selenium.webdriver.firefox.service import Service as FirefoxService
-#     except ImportError as e:
-#         raise Exception(
-#             "install package `pip install staffspy[browser]` to login with browser"
-#         )
-
-#     if driver_type:
-#         if str(driver_type.browser_type) == str(BrowserType.CHROME):
-#             if driver_type.executable_path:
-#                 service = ChromeService(executable_path=driver_type.executable_path)
-#                 return webdriver.Chrome(service=service)
-#             else:
-#                 return webdriver.Chrome()
-#         elif str(driver_type.browser_type) == str(BrowserType.FIREFOX):
-#             if driver_type.executable_path:
-#                 service = FirefoxService(executable_path=driver_type.executable_path)
-#                 return webdriver.Firefox(service=service)
-#             else:
-#                 return webdriver.Firefox()
-#     else:
-#         for browser in [webdriver.Chrome, webdriver.Firefox]:
-#             try:
-#                 return browser()
-#             except Exception:
-#                 continue
-#     return None
-
 def get_webdriver(driver_type: Optional[DriverType] = None):
     try:
         from selenium import webdriver
         from selenium.webdriver.chrome.service import Service as ChromeService
         from selenium.webdriver.firefox.service import Service as FirefoxService
-        from selenium.webdriver.chrome.options import Options  # BU SATIR EKSİK!
     except ImportError as e:
         raise Exception(
-            "install package `pip install staffspy[browser]` to login with browser"
+            'install package `pip install "staffspy[browser]"` to login with browser'
         )
-
-    # Chrome options for headless mode
-    chrome_options = Options()
-    chrome_options.add_argument("--headless=new")
-    chrome_options.add_argument("--no-sandbox")  # CRITICAL for server
-    chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_options.add_argument("--disable-gpu")
-    chrome_options.add_argument("--window-size=1920,1080")
-    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-    chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
-    chrome_options.add_experimental_option('useAutomationExtension', False)
 
     if driver_type:
         if str(driver_type.browser_type) == str(BrowserType.CHROME):
             if driver_type.executable_path:
                 service = ChromeService(executable_path=driver_type.executable_path)
-                return webdriver.Chrome(service=service, options=chrome_options)
+                return webdriver.Chrome(service=service)
             else:
-                return webdriver.Chrome(options=chrome_options)
+                return webdriver.Chrome()
         elif str(driver_type.browser_type) == str(BrowserType.FIREFOX):
             if driver_type.executable_path:
                 service = FirefoxService(executable_path=driver_type.executable_path)
@@ -121,13 +78,9 @@ def get_webdriver(driver_type: Optional[DriverType] = None):
             else:
                 return webdriver.Firefox()
     else:
-        # Default: try Chrome first with options
         for browser in [webdriver.Chrome, webdriver.Firefox]:
             try:
-                if browser == webdriver.Chrome:
-                    return browser(options=chrome_options)
-                else:
-                    return browser()
+                return browser()
             except Exception:
                 continue
     return None
@@ -285,20 +238,7 @@ class Login:
             raise Exception("driver not found for selenium")
 
         driver.get("https://linkedin.com/login")
-        # input("Press enter after logged in")
-
-        from shared_state import login_event, debug_event_status
-        print("After login to LinkedIn'e click on 'Login Completed' ...")
-
-        print("Before wait:")
-        debug_event_status()
-
-        login_event.wait()  # Bu satır bekleyecek
-        print("Login event received! Continuing...")
-        login_event.clear()
-
-
-
+        input("Press enter after logged in")
 
         selenium_cookies = driver.get_cookies()
         driver.quit()
@@ -315,41 +255,6 @@ class Login:
         with open(session_file, "wb") as f:
             pickle.dump(data, f)
 
-    # def load_session(self):
-    #     """Load session from session file, otherwise login"""
-    #     session = None
-    #     if not self.session_file or not os.path.exists(self.session_file):
-    #         if self.username and self.password:
-    #             try:
-    #                 session = self.login_requests()
-    #             except RetryError as retry_err:
-    #                 retry_err.reraise()
-    #         else:
-    #             session = self.login_browser()
-    #         if not session:
-    #             raise Exception("Failed to log in.")
-    #         if self.session_file:
-    #             self.save_session(session, self.session_file)
-    #     else:
-    #         with open(self.session_file, "rb") as f:
-    #             data = pickle.load(f)
-    #             session = requests.Session()
-    #             session.cookies.update(data["cookies"])
-    #             session.headers.update(data["headers"])
-    #     session.headers.update(
-    #         {
-    #             "User-Agent": "Mozilla/5.0 (Linux; U; Android 4.4.2; en-us; SCH-I535 Build/KOT49H) AppleWebKit/534.30 (KHTML, like Gecko) Version/4.0 Mobile Safari/534.30",
-    #             "X-RestLi-Protocol-Version": "2.0.0",
-    #             "X-Li-Track": '{"clientVersion":"1.13.1665"}',
-    #         }
-    #     )
-    #     if not self.check_logged_in(session):
-    #         raise Exception(
-    #             "Failed to log in. Likely outdated session file and cookies have expired. Delete the file and rerun the LinkedAccount() code"
-    #         )
-    #     return session
-
-
     def load_session(self):
         """Load session from session file, otherwise login"""
         session = None
@@ -357,9 +262,6 @@ class Login:
             if self.username and self.password:
                 try:
                     session = self.login_requests()
-                    if session and self.session_file:
-                        self.save_session(session, self.session_file)
-                    return session
                 except RetryError as retry_err:
                     retry_err.reraise()
             else:
@@ -383,10 +285,9 @@ class Login:
         )
         if not self.check_logged_in(session):
             raise Exception(
-                "Failed to log in. Likely outdated session file and cookies have expired. Delete the file and rerun the LinkedAccount() code"
+                "Failed to log in. Likely outdated session file and cookies have expired. Best practice to delete the file and rerun the LinkedAccount() code"
             )
         return session
-
 
     def check_logged_in(self, session):
         logger.info("Testing if logged in by checking arbitrary LinkedIn company page")
@@ -395,9 +296,10 @@ class Login:
                 "https://www.linkedin.com/voyager/api/organization/companies?q=universalName&universalName=amazon"
             )
             if res.status_code != 200:
-                logger.error(f"{res.status_code} status code returned from linkeind")
+                logger.error(f"{res.status_code} status code returned from linkedin")
                 return False
-        except:
+        except Exception as e:
+            logger.error(f"Failed to get arbitrary company page: {e}")
             return False
         logger.info("Account successfully logged in - res code 200")
         return True
