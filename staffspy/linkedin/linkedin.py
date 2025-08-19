@@ -64,7 +64,7 @@ class LinkedInScraper:
         self.languages = LanguagesFetcher(self.session)
         self.contact = ContactInfoFetcher(self.session)
 
-        self.request_delay_min = 1 
+        self.request_delay_min = 1
         self.request_delay_max = 3
         self.profile_fetch_count = 0
         self.max_profiles_before_break = 15
@@ -460,8 +460,8 @@ class LinkedInScraper:
 
         self._safe_delay()  # Random delay
 
-        # Her 10 profilden sonra uzun mola
-        if index % max_profiles_before_break == 0 and index > 0:
+        # Her 15 profilden sonra uzun mola
+        if index % 15 == 0 and index > 0:
             logger.info(f"Taking a 10-second break after {index} profiles...")
             time.sleep(7)
 
