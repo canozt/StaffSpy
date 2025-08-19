@@ -64,11 +64,10 @@ class LinkedInScraper:
         self.languages = LanguagesFetcher(self.session)
         self.contact = ContactInfoFetcher(self.session)
 
-        # YENİ EKLEMELER
-        self.request_delay_min = 2  # Minimum 2 saniye
-        self.request_delay_max = 4  # Maximum 5 saniye
+        self.request_delay_min = 1 
+        self.request_delay_max = 3
         self.profile_fetch_count = 0
-        self.max_profiles_before_break = 8  # Her 10 profilden sonra mola
+        self.max_profiles_before_break = 15
 
     def search_companies(self, company_name: str):
         """Get the company id and staff count from the company name."""
@@ -462,9 +461,9 @@ class LinkedInScraper:
         self._safe_delay()  # Random delay
 
         # Her 10 profilden sonra uzun mola
-        if index % 10 == 0 and index > 0:
+        if index % max_profiles_before_break == 0 and index > 0:
             logger.info(f"Taking a 10-second break after {index} profiles...")
-            time.sleep(10)
+            time.sleep(7)
 
         logger.info(
             f"Fetching data for account {employee.id} {index:>4} / {self.num_staff} - {employee.profile_link}"
