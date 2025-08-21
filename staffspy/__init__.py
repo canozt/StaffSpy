@@ -66,22 +66,26 @@ class LinkedInAccount:
         self.session = login.load_session()
 
     def scrape_staff(
-        self,
-        company_name: str = None,
-        search_term: str = None,
-        location: str = None,
-        extra_profile_data: bool = False,
-        max_results: int = 1000,
-        block: bool = False,
-        connect: bool = False,
+            self,
+            company_name: str = None,
+            search_term: str = None,
+            location: str = None,
+            extra_profile_data: bool = False,
+            max_results: int = 1000,
+            block: bool = False,
+            connect: bool = False,
     ):
         if self.on_block:
-            return logger.error(
+            logger.error(
                 "Account is on cooldown as a safety precaution after receiving a 429 (TooManyRequests) from LinkedIn. Please recreate a new LinkedInAccount to proceed."
             )
+            return pd.DataFrame(), {"error_message": "Account on cooldown"}
+
         """Main function entry point to scrape LinkedIn staff"""
         li_scraper = LinkedInScraper(self.session)
-        staff = li_scraper.scrape_staff(
+
+        # Güvenli unpacking
+        result = li_scraper.scrape_staff(
             company_name=company_name,
             extra_profile_data=extra_profile_data,
             search_term=search_term,
@@ -90,10 +94,19 @@ class LinkedInAccount:
             block=block,
             connect=connect,
         )
+
+        # Esnek unpacking
+        if isinstance(result, tuple):
+            staff_df = result[0]
+            metadata = result[1] if len(result) > 1 else None
+        else:
+            staff_df = result
+            metadata = None
+
         if li_scraper.on_block:
             self.on_block = True
-        staff_dicts = [staff.to_dict() for staff in staff]
-        staff_df = pd.DataFrame(staff_dicts)
+
+        # staff_df zaten DataFrame, tekrar dönüştürmeye gerek yok
         if staff_df.empty:
             return staff_df
 
@@ -101,10 +114,12 @@ class LinkedInAccount:
         linkedin_member_df = staff_df[staff_df["name"] == "LinkedIn Member"]
         non_linkedin_member_df = staff_df[staff_df["name"] != "LinkedIn Member"]
         staff_df = pd.concat([non_linkedin_member_df, linkedin_member_df])
+
         logger.info(
             f"3) Staff from {company_name}: {len(staff_df)} total, {len(linkedin_member_df)} hidden, {len(staff_df) - len(linkedin_member_df)} visible"
         )
-        return staff_df.reset_index(drop=True)
+
+        return staff_df.reset_index(drop=True), metadata
 
     def scrape_users(
         self, user_ids: list[str], block: bool = False, connect: bool = False

@@ -370,26 +370,40 @@ class LinkedInScraper:
         self.location = geo_id
 
     def scrape_staff(
-        self,
-        company_name: str | None,
-        search_term: str,
-        location: str,
-        extra_profile_data: bool,
-        max_results: int,
-        block: bool,
-        connect: bool,
-    ):
+            self,
+            company_name: str | None,
+            search_term: str,
+            location: str,
+            extra_profile_data: bool,
+            max_results: int,
+            block: bool,
+            connect: bool,
+    ) -> tuple["pd.DataFrame", dict]:  # DataFrame ve metadata döndür - quotes kullanarak
         """Main function entry point to scrape LinkedIn staff"""
+        import pandas as pd
+
         self.search_term = search_term
         self.company_name = company_name
         self.max_results = max_results
         self.raw_location = location
         self.company_id = None
 
+        # Metadata dictionary'sini başlat
+        metadata = {
+            "company_name": company_name,
+            "total_staff_in_company": None,
+            "total_staff_in_location": None,
+            "location": location,
+            "results_collected": 0,
+            "error_message": None
+        }
+
         if self.company_name:
             self.company_id, staff_count = self._get_company_id_and_staff_count(
                 company_name
             )
+            # Metadata'ya staff_count ekle
+            metadata["total_staff_in_company"] = staff_count
 
         staff_list: list[Staff] = []
 
@@ -398,20 +412,28 @@ class LinkedInScraper:
                 self.fetch_location_id()
             except GeoUrnNotFound as e:
                 logger.error(str(e))
-                return staff_list[:max_results]
+                metadata["error_message"] = str(e)
+                # Boş DataFrame döndür
+                empty_df = pd.DataFrame()
+                return empty_df, metadata
 
         try:
             initial_staff, total_count = self.fetch_staff(0)
             if initial_staff:
                 staff_list.extend(initial_staff)
+
+            # Metadata'ya total_count ekle
+            metadata["total_staff_in_location"] = total_count
+
             location = f", location: '{location}'" if location else ""
             logger.info(
                 f"1) Search results for company: '{company_name}'{location} - {total_count:,} staff"
             )
 
             if total_count < 20:
-                raise ValueError(
-                    f"Company '{company_name}' has only {total_count} staff members. Minimum 20 staff required for processing.")
+                error_msg = f"Found company '{company_name}' with {staff_count} staff.\nCompany '{company_name}' has only {total_count} staff members in {location if location else 'total'}. Minimum 20 staff required for processing."
+                metadata["error_message"] = error_msg
+                raise ValueError(error_msg)
 
             self.num_staff = min(total_count, max_results, 1000)
             for offset in range(50, self.num_staff, 50):
@@ -428,10 +450,23 @@ class LinkedInScraper:
             )
         except (BadCookies, TooManyRequests) as e:
             self.on_block = True
-            logger.error(f"Exiting early due to fatal error: {str(e)}")
-            return staff_list[:max_results]
+            error_msg = f"Exiting early due to fatal error: {str(e)}"
+            logger.error(error_msg)
+            metadata["error_message"] = error_msg
+            # Mevcut staff_list'i DataFrame'e çevir ve döndür
+            reduced_staff_list = staff_list[:max_results]
+            metadata["results_collected"] = len(reduced_staff_list)
+
+            if reduced_staff_list:
+                df = pd.DataFrame([staff.__dict__ for staff in reduced_staff_list])
+            else:
+                df = pd.DataFrame()
+            return df, metadata
 
         reduced_staff_list = staff_list[:max_results]
+        # Metadata'ya results_collected ekle
+        metadata["results_collected"] = len(reduced_staff_list)
+
         non_restricted = list(
             filter(lambda x: x.name != "LinkedIn Member", reduced_staff_list)
         )
@@ -447,8 +482,16 @@ class LinkedInScraper:
 
             except TooManyRequests as e:
                 logger.error(str(e))
+                metadata["error_message"] = str(e)
 
-        return reduced_staff_list
+        # Staff listini DataFrame'e çevir ve tuple olarak döndür
+        if reduced_staff_list:
+            df = pd.DataFrame([staff.__dict__ for staff in reduced_staff_list])
+        else:
+            df = pd.DataFrame()
+
+        return df, metadata
+
 
     def _safe_delay(self):
         """Add random delay to avoid detection"""
