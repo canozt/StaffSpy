@@ -211,8 +211,13 @@ class LinkedInScraper:
                 )
         return staff
 
-    def fetch_staff(self, offset: int):
-        """Fetch the staff using LinkedIn search"""
+    def fetch_staff(self, offset: int, search_by_title: bool = False):
+        """Fetch the staff using LinkedIn search
+
+        Args:
+            offset: Pagination offset
+            search_by_title: If True, search only in job titles. If False, search in all profile fields
+        """
         # Randomize headers before each request
         user_agents = [
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -221,32 +226,75 @@ class LinkedInScraper:
         ]
         self.session.headers["User-Agent"] = random.choice(user_agents)
 
-        ep = self.employees_ep.format(
-            offset=offset,
-            company_id=(
-                f"(key:currentCompany,value:List({self.company_id})),"
-                if self.company_id
-                else ""
-            ),
-            count=50,
-            search=f"keywords:{quote(self.search_term)}," if self.search_term else "",
-            location=(
-                f"(key:geoUrn,value:List({self.location}))," if self.location else ""
-            ),
-        )
+        # Base parameters listesi oluştur
+        query_parameters = []
+
+        # Company parametresi
+        if self.company_id:
+            query_parameters.append(f"(key:currentCompany,value:List({self.company_id}))")
+
+        # Location parametresi
+        if self.location:
+            query_parameters.append(f"(key:geoUrn,value:List({self.location}))")
+
+        # Search term parametresi
+        if self.search_term:
+            if search_by_title:
+                # Title araması için - quote kullanmadan direkt string olarak ekle
+                # LinkedIn API'si title için tırnak işareti bekliyor
+                query_parameters.append(f'(key:title,value:List("{self.search_term}"))')
+            # else kısmı keywords için aşağıda ele alınacak
+
+        # Result type her zaman PEOPLE
+        query_parameters.append("(key:resultType,value:List(PEOPLE))")
+
+        # Query parameters'ı birleştir
+        query_params_str = ",".join(query_parameters)
+
+        # Keywords parametresi (title araması değilse)
+        keywords_str = ""
+        if self.search_term and not search_by_title:
+            # Keywords query dışında, ana query'de yer alır
+            keywords_str = f"keywords:{quote(self.search_term)},"
+
+        # URL'yi oluştur
+        # LinkedIn'in beklediği format:
+        # variables=(start:X,query:(flagshipSearchIntent:SEARCH_SRP,queryParameters:List(...),keywords:...),count:X)
+
+        if keywords_str:
+            # Keywords varsa
+            query_part = f"query:(flagshipSearchIntent:SEARCH_SRP,{keywords_str}queryParameters:List({query_params_str}),includeFiltersInResponse:false)"
+        else:
+            # Keywords yoksa
+            query_part = f"query:(flagshipSearchIntent:SEARCH_SRP,queryParameters:List({query_params_str}),includeFiltersInResponse:false)"
+
+        # Final URL
+        ep = f"https://www.linkedin.com/voyager/api/graphql?variables=(start:{offset},{query_part},count:50)&queryId=voyagerSearchDashClusters.66adc6056cf4138949ca5dcb31bb1749"
+
+        # Debug için URL'yi logla
+        logger.debug(f"Request URL: {ep}")
+
         res = self.session.get(ep)
+
         if not res.ok:
             logger.debug(f"employees, status code - {res.status_code}")
+            logger.debug(f"Response text: {res.text}")
+
         if res.status_code == 400:
-            raise BadCookies("Outdated login, delete the session file to log in again")
+            # Bad Request durumunda daha detaylı hata mesajı
+            logger.error(f"Bad Request - URL: {ep}")
+            logger.error(f"Response: {res.text}")
+            raise BadCookies("Bad Request - Check URL format or outdated login")
         elif res.status_code == 429:
             raise TooManyRequests("429 Too Many Requests")
+
         if not res.ok:
             return None, 0
+
         try:
             res_json = res.json()
         except json.decoder.JSONDecodeError:
-            logger.debug(res.text)
+            logger.debug(f"JSON decode error: {res.text}")
             return None, 0
 
         try:
@@ -254,12 +302,13 @@ class LinkedInScraper:
             total_count = res_json["data"]["searchDashClustersByAll"]["metadata"][
                 "totalResultCount"
             ]
-
         except (KeyError, IndexError, TypeError):
-            logger.debug(res_json)
+            logger.debug(f"Response structure error: {res_json}")
             return None, 0
+
         new_staff = self.parse_staff(elements) if elements else []
         return new_staff, total_count
+
 
     def fetch_connections_page(self, offset: int):
         self.session.headers["x-li-graphql-pegasus-client"] = "true"
@@ -378,7 +427,7 @@ class LinkedInScraper:
             max_results: int,
             block: bool,
             connect: bool,
-    ) -> tuple["pd.DataFrame", dict]:  # DataFrame ve metadata döndür - quotes kullanarak
+    ) -> tuple["pd.DataFrame", dict]:
         """Main function entry point to scrape LinkedIn staff"""
         import pandas as pd
 
@@ -395,17 +444,18 @@ class LinkedInScraper:
             "total_staff_in_location": None,
             "location": location,
             "results_collected": 0,
-            "error_message": None
+            "error_message": None,
+            "search_terms_used": []  # Hangi search term'lerin kullanıldığını takip et
         }
 
         if self.company_name:
             self.company_id, staff_count = self._get_company_id_and_staff_count(
                 company_name
             )
-            # Metadata'ya staff_count ekle
             metadata["total_staff_in_company"] = staff_count
 
         staff_list: list[Staff] = []
+        seen_profile_ids = set()  # Duplicate'leri önlemek için
 
         if self.raw_location:
             try:
@@ -413,21 +463,36 @@ class LinkedInScraper:
             except GeoUrnNotFound as e:
                 logger.error(str(e))
                 metadata["error_message"] = str(e)
-                # Boş DataFrame döndür
                 empty_df = pd.DataFrame()
                 return empty_df, metadata
+
+        # Ek search term'ler listesi
+        additional_search_terms = [
+            "Office", "Hospitality", "Workplace", "Catering",
+            "Happiness","Culture", "Conference Center", "People", "Employee", "Corporate Services", "Food Service"
+        ]
+
+        # Helper function to add unique staff to list
+        def add_unique_staff(new_staff, staff_list, seen_ids):
+            """Add only unique staff members to the list"""
+            added_count = 0
+            for staff in new_staff:
+                if staff.id not in seen_ids:
+                    staff_list.append(staff)
+                    seen_ids.add(staff.id)
+                    added_count += 1
+            return added_count
 
         try:
             initial_staff, total_count = self.fetch_staff(0)
             if initial_staff:
-                staff_list.extend(initial_staff)
+                add_unique_staff(initial_staff, staff_list, seen_profile_ids)
 
-            # Metadata'ya total_count ekle
             metadata["total_staff_in_location"] = total_count
+            location_str = f", location: '{location}'" if location else ""
 
-            location = f", location: '{location}'" if location else ""
             logger.info(
-                f"1) Search results for company: '{company_name}'{location} - {total_count:,} staff"
+                f"1) Search results for company: '{company_name}'{location_str} - {total_count:,} staff"
             )
 
             if total_count < 20:
@@ -435,25 +500,79 @@ class LinkedInScraper:
                 metadata["error_message"] = error_msg
                 raise ValueError(error_msg)
 
-            self.num_staff = min(total_count, max_results, 1000)
-            for offset in range(50, self.num_staff, 50):
-                staff, _ = self.fetch_staff(offset)
-                logger.debug(
-                    f"Staff members from search: {len(staff)} new, {len(staff_list) + len(staff)} total"
-                )
-                if not staff:
-                    break
-                staff_list.extend(staff)
-            location = f", location: '{location}'" if location else ""
+            # Eğer total_count 1000 veya daha fazla ise, SADECE search term'lerle ara
+            if total_count >= 1000:
+                logger.info(
+                    f"Result limit (1000) reached. Will ONLY use specific search terms, skipping general search...")
+
+                # Ek search term'lerle ara
+                for term in additional_search_terms:
+                    # if len(staff_list) >= max_results:
+                    #     logger.info(f"Reached max_results limit ({max_results}). Stopping search.")
+                    #     break
+
+                    logger.info(f"Searching with term: '{term}'")
+
+                    # Search term'i güncelle
+                    original_search_term = self.search_term
+                    self.search_term = term
+
+                    try:
+                        # Her search term için arama yap
+                        term_staff, term_count = self.fetch_staff(0, True)
+
+                        if term_staff and term_count > 0:
+                            added = add_unique_staff(term_staff, staff_list, seen_profile_ids)
+                            logger.info(f"--------------- Found {term_count} results for '{term}', added {added} unique profiles")
+
+                            # Bu search term için TÜM sayfaları al (limit yok)
+                            for offset in range(50, term_count, 50):
+                                # if len(staff_list) >= max_results:
+                                #     break
+
+                                more_staff, _ = self.fetch_staff(offset)
+                                if more_staff:
+                                    added = add_unique_staff(more_staff, staff_list, seen_profile_ids)
+                                    logger.debug(f"--------------- Added {added} unique staff for term '{term}'")
+                                else:
+                                    break
+
+                                # Rate limiting için küçük delay
+                                time.sleep(random.uniform(0.5, 1.5))
+
+                            metadata["search_terms_used"].append(term)
+
+                    except Exception as e:
+                        logger.warning(f"Error searching with term '{term}': {str(e)}")
+                        continue
+                    finally:
+                        # Original search term'e geri dön
+                        self.search_term = original_search_term
+
+                    # Her search term arasında delay
+                    time.sleep(random.uniform(2, 4))
+
+            else:
+                # Normal akış (1000'den az sonuç varsa)
+                self.num_staff = min(total_count, max_results, 1000)
+                for offset in range(50, self.num_staff, 50):
+                    staff, _ = self.fetch_staff(offset)
+                    if not staff:
+                        break
+                    add_unique_staff(staff, staff_list, seen_profile_ids)
+                    logger.debug(f"Staff members from search: {len(staff)} new, {len(staff_list)} total")
+
+                metadata["search_terms_used"].append(search_term if search_term else "general")
+
             logger.info(
-                f"2) Total results collected for company: '{company_name}'{location} - {len(staff_list)} results"
+                f"2) Total unique results collected for company: '{company_name}'{location_str} - {len(staff_list)} results"
             )
+
         except (BadCookies, TooManyRequests) as e:
             self.on_block = True
             error_msg = f"Exiting early due to fatal error: {str(e)}"
             logger.error(error_msg)
             metadata["error_message"] = error_msg
-            # Mevcut staff_list'i DataFrame'e çevir ve döndür
             reduced_staff_list = staff_list[:max_results]
             metadata["results_collected"] = len(reduced_staff_list)
 
@@ -464,7 +583,6 @@ class LinkedInScraper:
             return df, metadata
 
         reduced_staff_list = staff_list[:max_results]
-        # Metadata'ya results_collected ekle
         metadata["results_collected"] = len(reduced_staff_list)
 
         non_restricted = list(
@@ -484,14 +602,14 @@ class LinkedInScraper:
                 logger.error(str(e))
                 metadata["error_message"] = str(e)
 
-        # Staff listini DataFrame'e çevir ve tuple olarak döndür
+        # Staff listini DataFrame'e çevir - to_dict() metodunu kullan
         if reduced_staff_list:
-            df = pd.DataFrame([staff.__dict__ for staff in reduced_staff_list])
+            staff_dicts = [staff.to_dict() for staff in reduced_staff_list]
+            df = pd.DataFrame(staff_dicts)
         else:
             df = pd.DataFrame()
 
         return df, metadata
-
 
     def _safe_delay(self):
         """Add random delay to avoid detection"""
@@ -521,8 +639,8 @@ class LinkedInScraper:
             time.sleep(random.uniform(1., 2))
 
             # 3. Experiences
-            # self.experiences.fetch_experiences(employee)
-            # time.sleep(1)
+            self.experiences.fetch_experiences(employee)
+            time.sleep(1)
 
             # 4. skills
             # self.skills.fetch_skills(employee)
