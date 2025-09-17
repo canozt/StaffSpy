@@ -120,11 +120,28 @@ class LinkedInScraper:
         res = self.session.get(f"{self.company_id_ep}{company_name}")
 
         if res.status_code not in (200, 404):
-            raise Exception(
-                f"Failed to find company {company_name}",
-                res.status_code,
-                res.text[:200],
-            )
+            formatted_name = self.format_company_name_for_linkedin(company_name)
+            res = self.session.get(f"{self.company_id_ep}{formatted_name}")
+            if res.status_code not in (200, 404):
+                raise Exception(
+                    f"Failed to find company {company_name}",
+                    res.status_code,
+                    res.text[:200],
+                )
+            elif res.status_code == 404:
+                logger.info(
+                    f"Failed to directly use company '{company_name}' as company id, now searching for the company"
+                )
+                company_name = self.search_companies(formatted_name)
+                encoded_name = quote(company_name, safe='')
+                res = self.session.get(f"{self.company_id_ep}{encoded_name}")
+                if res.status_code != 200:
+                    raise Exception(
+                        f"Failed to find company after performing a direct and generic search for {company_name}",
+                        res.status_code,
+                        res.text[:200],
+                    )
+
         elif res.status_code == 404:
             logger.info(
                 f"Failed to directly use company '{company_name}' as company id, now searching for the company"
@@ -165,7 +182,7 @@ class LinkedInScraper:
         company_name = company["universalName"]
 
         logger.info(f"Found company '{company_name}' with {staff_count} staff")
-        return company_id, staff_count
+        return company_id, company_name, staff_count
 
     def parse_staff(self, elements: list[dict]):
         """Parse the staff from the search results"""
@@ -210,6 +227,14 @@ class LinkedInScraper:
                     )
                 )
         return staff
+
+    def format_company_name_for_linkedin(self, company_name):
+        formatted = company_name.lower()
+        formatted = formatted.replace(',', ' ')
+        formatted = formatted.replace('.', ' ')
+        formatted = formatted.replace('&', 'and')
+        formatted = formatted.strip('-')
+        return formatted
 
     def fetch_staff(self, offset: int, search_by_title: bool = False):
         """Fetch the staff using LinkedIn search
@@ -436,6 +461,7 @@ class LinkedInScraper:
         self.max_results = max_results
         self.raw_location = location
         self.company_id = None
+        self.returned_company_name = None
 
         # Metadata dictionary'sini başlat
         metadata = {
@@ -449,10 +475,11 @@ class LinkedInScraper:
         }
 
         if self.company_name:
-            self.company_id, staff_count = self._get_company_id_and_staff_count(
+            self.company_id, self.returned_company_name, staff_count = self._get_company_id_and_staff_count(
                 company_name
             )
             metadata["total_staff_in_company"] = staff_count
+            metadata["company_name"] = self.returned_company_name
 
         staff_list: list[Staff] = []
         seen_profile_ids = set()  # Duplicate'leri önlemek için
@@ -496,7 +523,7 @@ class LinkedInScraper:
             )
 
             if total_count < 20:
-                error_msg = f"Found company '{company_name}' with {staff_count} staff.\nCompany '{company_name}' has only {total_count} staff members in {location if location else 'total'}. Minimum 20 staff required for processing."
+                error_msg = f"Found company '{metadata["company_name"]}' with {staff_count} staff.\nCompany '{metadata["company_name"]}' has only {total_count} staff members in {location if location else 'total'}. Minimum 20 staff required for processing."
                 metadata["error_message"] = error_msg
                 raise ValueError(error_msg)
 
