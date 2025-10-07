@@ -512,7 +512,7 @@ class LinkedInScraper:
 
         try:
             initial_staff, total_count = self.fetch_staff(0)
-            if initial_staff:
+            if initial_staff and total_count < 1000:
                 add_unique_staff(initial_staff, staff_list, seen_profile_ids)
 
             metadata["total_staff_in_location"] = total_count

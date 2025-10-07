@@ -106,7 +106,6 @@ class LinkedInAccount:
         if li_scraper.on_block:
             self.on_block = True
 
-        # staff_df zaten DataFrame, tekrar dönüştürmeye gerek yok
         if staff_df.empty:
             return staff_df
 
